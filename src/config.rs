@@ -39,6 +39,8 @@ pub struct Thresholds {
     pub bot_stale_days: f64,
     /// Half-life of the recency factor, in days since last update.
     pub recency_half_life_days: f64,
+    /// Review/FYI entries scoring below this are not shown at all.
+    pub min_review_score: f64,
 }
 
 impl Default for Thresholds {
@@ -48,6 +50,7 @@ impl Default for Thresholds {
             close_stale_days: 21.0,
             bot_stale_days: 30.0,
             recency_half_life_days: 7.0,
+            min_review_score: 0.0,
         }
     }
 }
@@ -146,6 +149,7 @@ thresholds:
   close_after_days: 60
   close_stale_days: 21
   recency_half_life_days: 7
+  min_review_score: 20      # hide review candidates scoring below this
 "#;
 
 impl Config {
@@ -224,6 +228,7 @@ mod tests {
         assert!(cfg.is_team_repo("ACME/widgets"));
         assert!(cfg.is_listed_bot("dependabot[bot]"));
         assert_eq!(cfg.thresholds.bot_stale_days, 30.0);
+        assert_eq!(cfg.thresholds.min_review_score, 20.0);
         assert_eq!(cfg.weights.author_bot, 0.25);
     }
 

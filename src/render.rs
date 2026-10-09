@@ -23,6 +23,9 @@ pub struct Report {
     pub action: Vec<Entry>,
     pub close: Vec<Entry>,
     pub fyi: Vec<Entry>,
+    /// Review/FYI entries dropped for scoring below `min_review_score`.
+    pub hidden_below_threshold: usize,
+    pub min_review_score: f64,
 }
 
 fn by_score_desc(a: &Entry, b: &Entry) -> Ordering {
@@ -35,13 +38,19 @@ fn by_score_desc(a: &Entry, b: &Entry) -> Ordering {
 }
 
 impl Report {
-    pub fn build(entries: Vec<Entry>) -> Report {
-        let mut r = Report::default();
+    pub fn build(entries: Vec<Entry>, min_review_score: f64) -> Report {
+        let mut r = Report {
+            min_review_score,
+            ..Report::default()
+        };
         for e in entries {
             match e.scored.bucket {
                 Bucket::Skip => {}
                 Bucket::Close(_) => r.close.push(e),
                 Bucket::Action(_) => r.action.push(e),
+                Bucket::Review(_) | Bucket::Fyi if e.scored.score < min_review_score => {
+                    r.hidden_below_threshold += 1;
+                }
                 Bucket::Review(_) => r.review.push(e),
                 Bucket::Fyi => r.fyi.push(e),
             }
@@ -90,6 +99,13 @@ impl Report {
             top,
             review_line,
         )?;
+        if self.hidden_below_threshold > 0 {
+            let hidden = format!(
+                "  {} hidden for scoring below {} (thresholds.min_review_score)\n",
+                self.hidden_below_threshold, self.min_review_score
+            );
+            writeln!(out, "{}", hidden.if_supports_color(Stdout, |t| t.dimmed()))?;
+        }
         section(
             out,
             "NEEDS MY ACTION",

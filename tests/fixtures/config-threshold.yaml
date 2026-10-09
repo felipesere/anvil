@@ -1,0 +1,7 @@
+me: me
+orgs: [acme]
+team:
+  members: [alice, bob]
+  repos: [acme/widgets, acme/gadgets]
+thresholds:
+  min_review_score: 40

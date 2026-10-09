@@ -125,3 +125,40 @@ fn top_caps_each_section_and_reports_the_rest() {
     let report: serde_json::Value = serde_json::from_slice(&unlimited.stdout).unwrap();
     assert_eq!(numbers(&report, "review").len(), 4);
 }
+
+#[test]
+fn min_review_score_hides_weak_candidates() {
+    let base = [
+        "--config",
+        "tests/fixtures/config-threshold.yaml",
+        "--fixture",
+        "tests/fixtures/search.json",
+        "--now",
+        NOW,
+    ];
+    let out = Command::new(env!("CARGO_BIN_EXE_anvil"))
+        .args(base)
+        .args(["--json", "--all"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    // 5 (~38) and 10 (~30) fall below 40; 1 and 6 stay. FYI 9 is also below.
+    assert_eq!(numbers(&report, "review"), vec![1, 6]);
+    assert_eq!(numbers(&report, "fyi"), Vec::<u64>::new());
+    assert_eq!(report["hidden_below_threshold"], 3);
+    // Action and close sections are unaffected by the review threshold.
+    assert_eq!(numbers(&report, "action"), vec![2, 8]);
+    assert_eq!(numbers(&report, "close"), vec![3, 7]);
+
+    let text = Command::new(env!("CARGO_BIN_EXE_anvil"))
+        .args(base)
+        .output()
+        .unwrap();
+    let text = String::from_utf8(text.stdout).unwrap();
+    assert!(text.contains("3 hidden for scoring below 40"), "{text}");
+}
