@@ -1,0 +1,582 @@
+{
+  "me": "me",
+  "searches": [
+    {
+      "query": "ReviewRequested",
+      "page": {
+        "total_count": 2,
+        "items": [
+          {
+            "node_id": "PR_1",
+            "number": 1,
+            "title": "Add retry to webhook client",
+            "html_url": "https://github.com/acme/widgets/pull/1",
+            "draft": false,
+            "created_at": "2026-10-07T09:00:00Z",
+            "updated_at": "2026-10-08T15:00:00Z",
+            "user": {
+              "login": "alice",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/widgets"
+          },
+          {
+            "node_id": "PR_6",
+            "number": 6,
+            "title": "Bump logging level",
+            "html_url": "https://github.com/other/repo/pull/6",
+            "draft": false,
+            "created_at": "2026-10-05T09:00:00Z",
+            "updated_at": "2026-10-06T15:00:00Z",
+            "user": {
+              "login": "dave",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/other/repo"
+          }
+        ]
+      }
+    },
+    {
+      "query": "Authored",
+      "page": {
+        "total_count": 4,
+        "items": [
+          {
+            "node_id": "PR_2",
+            "number": 2,
+            "title": "Fix flaky test",
+            "html_url": "https://github.com/acme/widgets/pull/2",
+            "draft": false,
+            "created_at": "2026-10-06T09:00:00Z",
+            "updated_at": "2026-10-08T10:00:00Z",
+            "user": {
+              "login": "me",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/widgets"
+          },
+          {
+            "node_id": "PR_3",
+            "number": 3,
+            "title": "Spike: new cache layer",
+            "html_url": "https://github.com/acme/gadgets/pull/3",
+            "draft": false,
+            "created_at": "2026-06-01T09:00:00Z",
+            "updated_at": "2026-07-01T10:00:00Z",
+            "user": {
+              "login": "me",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/gadgets"
+          },
+          {
+            "node_id": "PR_4",
+            "number": 4,
+            "title": "WIP: rewrite everything",
+            "html_url": "https://github.com/acme/widgets/pull/4",
+            "draft": true,
+            "created_at": "2026-10-08T09:00:00Z",
+            "updated_at": "2026-10-08T10:00:00Z",
+            "user": {
+              "login": "me",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/widgets"
+          },
+          {
+            "node_id": "PR_8",
+            "number": 8,
+            "title": "Tidy error messages",
+            "html_url": "https://github.com/acme/widgets/pull/8",
+            "draft": false,
+            "created_at": "2026-10-02T09:00:00Z",
+            "updated_at": "2026-10-08T10:00:00Z",
+            "user": {
+              "login": "me",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/widgets"
+          }
+        ]
+      }
+    },
+    {
+      "query": "Involves",
+      "page": {
+        "total_count": 2,
+        "items": [
+          {
+            "node_id": "PR_5",
+            "number": 5,
+            "title": "Refactor billing adapter",
+            "html_url": "https://github.com/other/repo/pull/5",
+            "draft": false,
+            "created_at": "2026-10-01T09:00:00Z",
+            "updated_at": "2026-10-08T10:00:00Z",
+            "user": {
+              "login": "carol",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/other/repo"
+          },
+          {
+            "node_id": "PR_9",
+            "number": 9,
+            "title": "Docs for the thing",
+            "html_url": "https://github.com/other/repo/pull/9",
+            "draft": false,
+            "created_at": "2026-10-01T09:00:00Z",
+            "updated_at": "2026-10-02T10:00:00Z",
+            "user": {
+              "login": "carol",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/other/repo"
+          }
+        ]
+      }
+    },
+    {
+      "query": "TeamRepos",
+      "page": {
+        "total_count": 3,
+        "items": [
+          {
+            "node_id": "PR_1",
+            "number": 1,
+            "title": "Add retry to webhook client",
+            "html_url": "https://github.com/acme/widgets/pull/1",
+            "draft": false,
+            "created_at": "2026-10-07T09:00:00Z",
+            "updated_at": "2026-10-08T15:00:00Z",
+            "user": {
+              "login": "alice",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/widgets"
+          },
+          {
+            "node_id": "PR_7",
+            "number": 7,
+            "title": "Bump serde to 1.0.230",
+            "html_url": "https://github.com/acme/gadgets/pull/7",
+            "draft": false,
+            "created_at": "2026-08-20T09:00:00Z",
+            "updated_at": "2026-08-25T10:00:00Z",
+            "user": {
+              "login": "dependabot[bot]",
+              "type": "Bot"
+            },
+            "repository_url": "https://api.github.com/repos/acme/gadgets"
+          },
+          {
+            "node_id": "PR_10",
+            "number": 10,
+            "title": "Migrate to new auth",
+            "html_url": "https://github.com/acme/gadgets/pull/10",
+            "draft": false,
+            "created_at": "2026-10-03T09:00:00Z",
+            "updated_at": "2026-10-07T10:00:00Z",
+            "user": {
+              "login": "bob",
+              "type": "User"
+            },
+            "repository_url": "https://api.github.com/repos/acme/gadgets"
+          }
+        ]
+      }
+    }
+  ],
+  "details": [
+    {
+      "id": "PR_1",
+      "additions": 10,
+      "deletions": 5,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-08T15:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": [
+          {
+            "requestedReviewer": {
+              "__typename": "User",
+              "login": "me"
+            }
+          }
+        ]
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "alice"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_2",
+      "additions": 10,
+      "deletions": 5,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-08T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "FAILURE"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "me"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_3",
+      "additions": 900,
+      "deletions": 40,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-07-01T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "me"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_5",
+      "additions": 300,
+      "deletions": 120,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-08T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": [
+          {
+            "author": {
+              "login": "me"
+            },
+            "state": "CHANGES_REQUESTED",
+            "submittedAt": "2026-10-03T09:00:00Z"
+          }
+        ]
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "carol"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_6",
+      "additions": 10,
+      "deletions": 5,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-06T15:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": [
+          {
+            "requestedReviewer": {
+              "__typename": "Team",
+              "slug": "payments"
+            }
+          }
+        ]
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "dave"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_7",
+      "additions": 2,
+      "deletions": 2,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-08-25T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "dependabot[bot]"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_8",
+      "additions": 10,
+      "deletions": 5,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-08T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": [
+          {
+            "author": {
+              "login": "bob"
+            },
+            "state": "APPROVED",
+            "submittedAt": "2026-10-08T09:00:00Z"
+          }
+        ]
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "me"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_9",
+      "additions": 10,
+      "deletions": 5,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-02T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "SUCCESS"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": [
+          {
+            "author": {
+              "login": "me"
+            },
+            "state": "APPROVED",
+            "submittedAt": "2026-10-02T12:00:00Z"
+          }
+        ]
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "carol"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PR_10",
+      "additions": 410,
+      "deletions": 90,
+      "changedFiles": 2,
+      "mergeable": "MERGEABLE",
+      "lastCommit": {
+        "nodes": [
+          {
+            "commit": {
+              "oid": "abc",
+              "committedDate": "2026-10-07T10:00:00Z",
+              "statusCheckRollup": {
+                "state": "FAILURE"
+              }
+            }
+          }
+        ]
+      },
+      "reviewRequests": {
+        "nodes": []
+      },
+      "latestReviews": {
+        "nodes": []
+      },
+      "authors": {
+        "nodes": [
+          {
+            "commit": {
+              "author": {
+                "user": {
+                  "login": "bob"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

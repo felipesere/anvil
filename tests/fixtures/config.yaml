@@ -1,0 +1,8 @@
+me: me
+
+team:
+  members: [alice, bob]
+  repos:
+    - acme/widgets
+    - acme/gadgets
+  bots: ["renovate[bot]"]
