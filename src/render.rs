@@ -53,23 +53,61 @@ impl Report {
         r
     }
 
+    /// Keep only the best `top` entries per section (`0` = unlimited).
+    pub fn truncate(&mut self, top: usize) {
+        if top == 0 {
+            return;
+        }
+        for section in [
+            &mut self.review,
+            &mut self.action,
+            &mut self.close,
+            &mut self.fyi,
+        ] {
+            section.truncate(top);
+        }
+    }
+
     pub fn print_json(&self, out: &mut impl Write) -> Result<()> {
         serde_json::to_writer_pretty(&mut *out, self)?;
         writeln!(out)?;
         Ok(())
     }
 
+    /// `top == 0` means unlimited.
     pub fn print_terminal(
         &self,
         out: &mut impl Write,
         explain: bool,
         show_fyi: bool,
+        top: usize,
     ) -> Result<()> {
-        section(out, "NEEDS MY REVIEW", &self.review, explain, review_line)?;
-        section(out, "NEEDS MY ACTION", &self.action, explain, action_line)?;
-        section(out, "COULD BE CLOSED", &self.close, explain, close_line)?;
+        section(
+            out,
+            "NEEDS MY REVIEW",
+            &self.review,
+            explain,
+            top,
+            review_line,
+        )?;
+        section(
+            out,
+            "NEEDS MY ACTION",
+            &self.action,
+            explain,
+            top,
+            action_line,
+        )?;
+        section(
+            out,
+            "COULD BE CLOSED",
+            &self.close,
+            explain,
+            top,
+            close_line,
+        )?;
         if show_fyi {
-            section(out, "FYI", &self.fyi, explain, review_line)?;
+            section(out, "FYI", &self.fyi, explain, top, review_line)?;
         }
         Ok(())
     }
@@ -80,6 +118,7 @@ fn section(
     title: &str,
     entries: &[Entry],
     explain: bool,
+    top: usize,
     line: fn(&Entry) -> String,
 ) -> Result<()> {
     writeln!(out, "{}", title.if_supports_color(Stdout, |t| t.bold()))?;
@@ -90,7 +129,12 @@ fn section(
             "nothing".if_supports_color(Stdout, |t| t.dimmed())
         )?;
     }
-    for e in entries {
+    let shown = if top == 0 {
+        entries.len()
+    } else {
+        top.min(entries.len())
+    };
+    for e in &entries[..shown] {
         writeln!(
             out,
             "  {}  {}",
@@ -104,6 +148,13 @@ fn section(
                 explanation(e).if_supports_color(Stdout, |t| t.dimmed())
             )?;
         }
+    }
+    if shown < entries.len() {
+        let more = format!(
+            "… and {} more (raise --top to see them)",
+            entries.len() - shown
+        );
+        writeln!(out, "  {}", more.if_supports_color(Stdout, |t| t.dimmed()))?;
     }
     writeln!(out)?;
     Ok(())

@@ -96,3 +96,32 @@ fn missing_config_explains_itself() {
     assert!(err.contains("no config file"), "{err}");
     assert!(err.contains("team:"), "should print an example: {err}");
 }
+
+#[test]
+fn top_caps_each_section_and_reports_the_rest() {
+    let out = run(&["--top", "1"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("acme/widgets#1"),
+        "best review PR still shown"
+    );
+    assert!(
+        !text.contains("other/repo#6"),
+        "second review PR cut by --top 1"
+    );
+    assert!(text.contains("… and 3 more"), "{text}");
+
+    let json = run(&["--json", "--top", "1"]);
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(numbers(&report, "review"), vec![1]);
+    assert_eq!(numbers(&report, "close"), vec![3]);
+
+    let unlimited = run(&["--json", "--top", "0"]);
+    let report: serde_json::Value = serde_json::from_slice(&unlimited.stdout).unwrap();
+    assert_eq!(numbers(&report, "review").len(), 4);
+}

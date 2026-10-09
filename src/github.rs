@@ -381,7 +381,12 @@ impl Client {
 
 /// The searches to run for this config. Each returns PRs tagged with its `Query`.
 pub fn search_queries(cfg: &Config) -> Vec<(Query, String)> {
-    const BASE: &str = "is:open is:pr draft:false archived:false";
+    let mut base = String::from("is:open is:pr draft:false archived:false");
+    for org in &cfg.orgs {
+        base.push_str(&format!(" org:{org}"));
+    }
+    #[allow(non_snake_case)]
+    let BASE = base.as_str();
     let mut out = vec![
         (
             Query::ReviewRequested,
@@ -720,6 +725,18 @@ mod tests {
         assert_eq!(a.id, "x");
         assert_eq!(a.additions, 5);
         assert_eq!(a.mergeable.as_deref(), Some("MERGEABLE"));
+    }
+
+    #[test]
+    fn orgs_scope_every_query() {
+        let mut cfg = Config {
+            orgs: vec!["acme".into(), "acme-labs".into()],
+            ..Default::default()
+        };
+        cfg.team.repos = vec!["acme/widgets".into()];
+        for (_, q) in search_queries(&cfg) {
+            assert!(q.contains(" org:acme org:acme-labs "), "{q}");
+        }
     }
 
     #[test]

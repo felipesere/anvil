@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// GitHub login. Resolved from the API when absent.
     pub me: Option<String>,
+    /// Restrict every search to these organisations (empty = everywhere).
+    pub orgs: Vec<String>,
     pub team: Team,
     pub thresholds: Thresholds,
     pub weights: Weights,
@@ -131,6 +133,7 @@ impl Default for Weights {
 }
 
 const EXAMPLE: &str = r#"me: your-github-login        # optional, resolved from the API if absent
+orgs: [acme]                 # only look at PRs in these orgs
 
 team:
   members: [alice, bob]
@@ -216,6 +219,7 @@ mod tests {
     fn parses_example_and_fills_defaults() {
         let cfg = Config::parse(EXAMPLE).unwrap();
         assert_eq!(cfg.me.as_deref(), Some("your-github-login"));
+        assert_eq!(cfg.orgs, vec!["acme"]);
         assert_eq!(cfg.team.members, vec!["alice", "bob"]);
         assert!(cfg.is_team_repo("ACME/widgets"));
         assert!(cfg.is_listed_bot("dependabot[bot]"));

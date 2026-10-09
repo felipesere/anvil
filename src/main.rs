@@ -37,6 +37,10 @@ struct Cli {
     #[arg(long)]
     all: bool,
 
+    /// Show at most this many PRs per section (0 = unlimited).
+    #[arg(long, default_value_t = 10, value_name = "N")]
+    top: usize,
+
     /// Replay a saved fixture instead of calling GitHub.
     #[arg(long, value_name = "FILE", conflicts_with = "dump_fixture")]
     fixture: Option<PathBuf>,
@@ -131,13 +135,14 @@ async fn main() -> Result<()> {
         })
         .collect();
 
-    let report = Report::build(entries);
+    let mut report = Report::build(entries);
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     if cli.json {
+        report.truncate(cli.top);
         report.print_json(&mut out)?;
     } else {
-        report.print_terminal(&mut out, cli.explain, cli.all)?;
+        report.print_terminal(&mut out, cli.explain, cli.all, cli.top)?;
     }
     Ok(())
 }
