@@ -146,10 +146,17 @@ impl Report {
 const PR_REF_COLUMN: usize = 1;
 
 const REVIEW_HEADER: &[&str] = &[
-    "score", "pr", "diff", "stale", "ci", "author", "reason", "title",
+    "score",
+    "pr (link)",
+    "diff",
+    "stale",
+    "ci",
+    "author",
+    "reason",
+    "title",
 ];
-const ACTION_HEADER: &[&str] = &["score", "pr", "reason", "title"];
-const CLOSE_HEADER: &[&str] = &["stale", "pr", "reason", "who", "title"];
+const ACTION_HEADER: &[&str] = &["score", "pr (link)", "reason", "title"];
+const CLOSE_HEADER: &[&str] = &["stale", "pr (link)", "reason", "who", "title"];
 
 #[allow(clippy::too_many_arguments)]
 fn section(
