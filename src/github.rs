@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use tokio::task::JoinSet;
 
 use crate::config::Config;
-use crate::model::{CiState, Mergeable, Pr, Query, Review, ReviewDecision, ReviewState};
+use crate::model::{CiState, Comment, Mergeable, Pr, Query, Review, ReviewDecision, ReviewState};
 
 const API: &str = "https://api.github.com";
 const USER_AGENT: &str = concat!("anvil/", env!("CARGO_PKG_VERSION"));
@@ -34,12 +34,15 @@ const RETRIES: usize = 2;
 
 /// Field groups for the detail fetch. Each is cheap enough on its own for a
 /// `DETAIL_CHUNK`-sized batch; together they are not.
-const DETAIL_GROUPS: [&str; 3] = [
+const DETAIL_GROUPS: [&str; 5] = [
     "id additions deletions changedFiles mergeable",
     "id lastCommit: commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state } } } }",
     "id reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } } \
      latestReviews(first: 30) { nodes { author { login } state submittedAt } } \
      authors: commits(first: 50) { nodes { commit { author { user { login } } } } }",
+    "id comments(last: 30) { nodes { author { __typename login } body createdAt } } \
+     reviewBodies: reviews(last: 20) { nodes { author { __typename login } body state createdAt: submittedAt } }",
+    "id reviewThreads(last: 20) { nodes { comments(last: 5) { nodes { author { __typename login } body createdAt } } } }",
 ];
 
 const VIEWER_QUERY: &str = "query { viewer { login } }";
@@ -112,6 +115,9 @@ pub struct RawDetail {
     pub review_requests: RawNodes<RawReviewRequest>,
     pub latest_reviews: RawNodes<RawReview>,
     pub authors: RawNodes<RawCommitNode>,
+    pub comments: RawNodes<RawComment>,
+    pub review_bodies: RawNodes<RawComment>,
+    pub review_threads: RawNodes<RawThread>,
 }
 
 impl RawDetail {
@@ -139,6 +145,15 @@ impl RawDetail {
         if !other.authors.nodes.is_empty() {
             self.authors = other.authors;
         }
+        if !other.comments.nodes.is_empty() {
+            self.comments = other.comments;
+        }
+        if !other.review_bodies.nodes.is_empty() {
+            self.review_bodies = other.review_bodies;
+        }
+        if !other.review_threads.nodes.is_empty() {
+            self.review_threads = other.review_threads;
+        }
     }
 }
 
@@ -151,7 +166,27 @@ pub struct RawNodes<T> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RawActor {
+    /// Only present where the query asks for `__typename`.
+    #[serde(rename = "__typename")]
+    pub typename: String,
     pub login: String,
+}
+
+/// An issue comment, a review body or an inline review comment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RawComment {
+    pub author: Option<RawActor>,
+    pub body: String,
+    /// Reviews only; pending ones are not submitted yet.
+    pub state: Option<String>,
+    pub created_at: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RawThread {
+    pub comments: RawNodes<RawComment>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -226,20 +261,6 @@ struct NodesData {
     nodes: Vec<Option<RawDetail>>,
 }
 
-/// On-disk snapshot of a run, replayable with `--fixture`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Fixture {
-    pub me: String,
-    pub searches: Vec<FixtureSearch>,
-    pub details: Vec<RawDetail>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FixtureSearch {
-    pub query: Query,
-    pub page: SearchPage,
-}
-
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -253,21 +274,7 @@ pub fn discover_token() -> Result<String> {
             }
         }
     }
-    let out = std::process::Command::new("gh")
-        .args(["auth", "token"])
-        .output()
-        .context("no GITHUB_TOKEN set and `gh` not runnable")?;
-    if !out.status.success() {
-        bail!(
-            "no GITHUB_TOKEN set and `gh auth token` failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    let token = String::from_utf8(out.stdout)?.trim().to_string();
-    if token.is_empty() {
-        bail!("`gh auth token` returned nothing; run `gh auth login`");
-    }
-    Ok(token)
+    bail!("set GITHUB_TOKEN or GH_TOKEN to a GitHub token")
 }
 
 #[derive(Clone)]
@@ -513,6 +520,61 @@ fn derive_decision(reviews: &[Review]) -> ReviewDecision {
     }
 }
 
+/// Logins `@mentioned` in `body`, in order, without duplicates. An `@` glued
+/// to the previous word (as in an email address) does not count.
+pub fn mentions(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut prev: Option<char> = None;
+    for (i, c) in body.char_indices() {
+        let starts_word = prev.is_none_or(|p| !p.is_alphanumeric() && p != '@');
+        if c == '@' && starts_word {
+            let login: String = body[i + 1..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect();
+            if !login.is_empty() && !out.iter().any(|m| m.eq_ignore_ascii_case(&login)) {
+                out.push(login);
+            }
+        }
+        prev = Some(c);
+    }
+    out
+}
+
+/// Flatten every kind of comment into one list, oldest first. Review bodies
+/// are only comments when they say something.
+fn collect_comments(d: &RawDetail) -> Vec<Comment> {
+    let bodies = d
+        .review_bodies
+        .nodes
+        .iter()
+        .filter(|r| r.state.as_deref() != Some("PENDING") && !r.body.trim().is_empty());
+    let threads = d
+        .review_threads
+        .nodes
+        .iter()
+        .flat_map(|t| &t.comments.nodes);
+    let mut comments: Vec<Comment> = d
+        .comments
+        .nodes
+        .iter()
+        .chain(bodies)
+        .chain(threads)
+        .filter_map(|c| {
+            let author = c.author.as_ref()?;
+            Some(Comment {
+                author: author.login.clone(),
+                author_is_bot: author.typename == "Bot",
+                created_at: c.created_at?,
+                mentions: mentions(&c.body),
+            })
+        })
+        .filter(|c| !c.author.is_empty())
+        .collect();
+    comments.sort_by_key(|c| c.created_at);
+    comments
+}
+
 /// Deduplicate search hits by node id, remembering which queries found each.
 pub fn candidates(searches: Vec<(Query, SearchPage)>) -> Vec<(SearchItem, BTreeSet<Query>)> {
     let mut by_id: BTreeMap<String, (SearchItem, BTreeSet<Query>)> = BTreeMap::new();
@@ -544,6 +606,7 @@ pub fn assemble(
         .into_iter()
         .map(|(item, found_by)| {
             let d = details.remove(&item.node_id).unwrap_or_default();
+            let comments = collect_comments(&d);
 
             let mut requested_users = Vec::new();
             let mut requested_teams = Vec::new();
@@ -615,6 +678,7 @@ pub fn assemble(
                 requested_teams,
                 reviews,
                 commit_authors: commit_authors.into_iter().collect(),
+                comments,
                 found_by,
             }
         })
@@ -683,6 +747,21 @@ mod tests {
             "authors": { "nodes": [
                 { "commit": { "author": { "user": { "login": "carol" } } } },
                 { "commit": { "author": { "user": null } } }
+            ] },
+            "comments": { "nodes": [
+                { "author": { "__typename": "User", "login": "bob" }, "body": "hey @me look", "createdAt": "2026-10-03T00:00:00Z" },
+                { "author": { "__typename": "Bot", "login": "ci[bot]" }, "body": "built", "createdAt": "2026-10-03T01:00:00Z" },
+                { "author": null, "body": "ghost", "createdAt": "2026-10-03T02:00:00Z" }
+            ] },
+            "reviewBodies": { "nodes": [
+                { "author": { "__typename": "User", "login": "bob" }, "body": "", "state": "APPROVED", "createdAt": "2026-10-01T12:00:00Z" },
+                { "author": { "__typename": "User", "login": "me" }, "body": "draft", "state": "PENDING", "createdAt": "2026-10-04T00:00:00Z" },
+                { "author": { "__typename": "User", "login": "dave" }, "body": "LGTM", "state": "COMMENTED", "createdAt": "2026-10-02T00:00:00Z" }
+            ] },
+            "reviewThreads": { "nodes": [
+                { "comments": { "nodes": [
+                    { "author": { "__typename": "User", "login": "erin" }, "body": "nit", "createdAt": "2026-10-01T18:00:00Z" }
+                ] } }
             ] }
         }))
         .unwrap();
@@ -704,11 +783,37 @@ mod tests {
         assert_eq!(x.requested_teams, vec!["payments"]);
         assert_eq!(x.reviews.len(), 1);
         assert_eq!(x.commit_authors, vec!["carol"]);
+        let who: Vec<(&str, bool)> = x
+            .comments
+            .iter()
+            .map(|c| (c.author.as_str(), c.author_is_bot))
+            .collect();
+        assert_eq!(
+            who,
+            vec![
+                ("erin", false),
+                ("dave", false),
+                ("bob", false),
+                ("ci[bot]", true)
+            ],
+            "oldest first; empty and pending review bodies and ghost comments dropped"
+        );
+        assert_eq!(x.comments[2].mentions, vec!["me"]);
         let y = &prs[1];
         assert_eq!(y.author, "ghost");
         assert_eq!(y.mergeable, Mergeable::Unknown);
         assert_eq!(y.review_decision, ReviewDecision::ReviewRequired);
         assert_eq!(y.additions, 0);
+    }
+
+    #[test]
+    fn mentions_are_whole_handles_at_word_starts() {
+        assert_eq!(
+            mentions("@alice please, cc @Bob-1 and @alice again (@acme/payments)"),
+            vec!["alice", "Bob-1", "acme"]
+        );
+        assert!(mentions("mail me at felipe@example.com or @@ nothing").is_empty());
+        assert_eq!(mentions("(@carol)"), vec!["carol"]);
     }
 
     #[test]

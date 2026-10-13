@@ -24,6 +24,7 @@ pub enum ActionReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReviewReason {
     RequestedMe,
+    Mentioned,
     RequestedTeam,
     ReReview,
     TeamPr,
@@ -92,6 +93,9 @@ pub fn bucket(f: &PrFacts, t: &Thresholds) -> Bucket {
         if f.requested_me {
             reasons.push(ReviewReason::RequestedMe);
         }
+        if f.mentioned_me {
+            reasons.push(ReviewReason::Mentioned);
+        }
         if f.requested_my_team {
             reasons.push(ReviewReason::RequestedTeam);
         }
@@ -145,6 +149,14 @@ fn w_recency(f: &PrFacts, t: &Thresholds) -> f64 {
     0.5 + 0.5 * 0.5f64.powf(f.stale_days / t.recency_half_life_days)
 }
 
+fn w_discussion(f: &PrFacts, w: &Weights) -> f64 {
+    if f.recent_comments > 0 {
+        1.0
+    } else {
+        w.discussion_quiet
+    }
+}
+
 fn w_state(f: &PrFacts, w: &Weights) -> f64 {
     let mut m = 1.0f64;
     if f.ci == CiState::Failure {
@@ -170,10 +182,14 @@ fn review_score(f: &PrFacts, e: Option<&Enrichment>, cfg: &Config) -> (f64, Expl
         ("size", w_size(f, e, w)),
         ("recency", w_recency(f, &cfg.thresholds)),
         ("state", w_state(f, w)),
+        ("discussion", w_discussion(f, w)),
     ];
     let mut bonuses = Vec::new();
     if f.requested_me {
         bonuses.push(("requested_me", w.bonus_requested_me));
+    }
+    if f.mentioned_me {
+        bonuses.push(("mentioned_me", w.bonus_mentioned_me));
     }
     if f.updated_since_my_review && f.my_last_review != Some(ReviewState::Approved) {
         bonuses.push(("re_review", w.bonus_rereview));
@@ -256,6 +272,8 @@ mod tests {
             updated_since_my_review: false,
             approved_by_other: false,
             changes_requested_by_other: false,
+            recent_comments: 0,
+            mentioned_me: false,
         }
     }
 
@@ -411,6 +429,53 @@ mod tests {
         let plain = triage(&facts(), None, &cfg());
         assert!(requested.score > plain.score);
         assert_eq!(requested.explanation.bonuses, vec![("requested_me", 25.0)]);
+    }
+
+    #[test]
+    fn mention_puts_a_pr_in_review_and_adds_a_bonus() {
+        let f = PrFacts {
+            repo_tier: RepoTier::Other,
+            author_tier: AuthorTier::Other,
+            mentioned_me: true,
+            ..facts()
+        };
+        assert_eq!(
+            bucket(&f, &t()),
+            Bucket::Review(vec![ReviewReason::Mentioned])
+        );
+        let scored = triage(&f, None, &cfg());
+        assert_eq!(scored.explanation.bonuses, vec![("mentioned_me", 20.0)]);
+
+        let mine = PrFacts {
+            is_mine: true,
+            i_contributed: true,
+            ..f
+        };
+        assert_eq!(bucket(&mine, &t()), Bucket::Fyi);
+    }
+
+    #[test]
+    fn quiet_prs_score_below_discussed_ones() {
+        let quiet = triage(&facts(), None, &cfg());
+        let discussed = triage(
+            &PrFacts {
+                recent_comments: 2,
+                ..facts()
+            },
+            None,
+            &cfg(),
+        );
+        assert!(discussed.score > quiet.score);
+        let factor = |s: &Scored| {
+            s.explanation
+                .factors
+                .iter()
+                .find(|(k, _)| *k == "discussion")
+                .map(|(_, v)| *v)
+                .unwrap()
+        };
+        assert_eq!(factor(&discussed), 1.0);
+        assert_eq!(factor(&quiet), 0.8);
     }
 
     #[test]

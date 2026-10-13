@@ -68,6 +68,18 @@ pub struct Review {
     pub submitted_at: Timestamp,
 }
 
+/// Anything someone wrote on the PR: an issue comment, a review body or an
+/// inline review comment. The body itself is not kept, only who it mentions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Comment {
+    pub author: String,
+    /// GitHub types the author as `Bot`.
+    pub author_is_bot: bool,
+    pub created_at: Timestamp,
+    /// Logins `@mentioned` in the body, in order of appearance.
+    pub mentions: Vec<String>,
+}
+
 /// A pull request as fetched from GitHub, independent of who is looking at it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pr {
@@ -97,6 +109,8 @@ pub struct Pr {
     pub reviews: Vec<Review>,
     /// Logins of commit authors (deduplicated, unknown users dropped).
     pub commit_authors: Vec<String>,
+    /// Most recent comments of every kind, oldest first.
+    pub comments: Vec<Comment>,
     pub found_by: BTreeSet<Query>,
 }
 
@@ -120,6 +134,10 @@ pub struct PrFacts {
     pub updated_since_my_review: bool,
     pub approved_by_other: bool,
     pub changes_requested_by_other: bool,
+    /// Comments by other humans within `thresholds.recent_comment_days`.
+    pub recent_comments: u32,
+    /// Someone else `@mentioned` me and I have not commented or reviewed since.
+    pub mentioned_me: bool,
 }
 
 pub fn days_between(earlier: Timestamp, later: Timestamp) -> f64 {
@@ -171,6 +189,24 @@ impl PrFacts {
             .iter()
             .any(|r| r.state == ReviewState::ChangesRequested && !same_login(&r.author, me));
 
+        let my_last_activity = pr
+            .comments
+            .iter()
+            .filter(|c| same_login(&c.author, me))
+            .map(|c| c.created_at)
+            .chain(my_review.map(|r| r.submitted_at))
+            .max();
+        let by_other_humans = pr.comments.iter().filter(|c| {
+            !same_login(&c.author, me) && !c.author_is_bot && !cfg.is_listed_bot(&c.author)
+        });
+        let recent_comments = by_other_humans
+            .clone()
+            .filter(|c| days_between(c.created_at, now) <= cfg.thresholds.recent_comment_days)
+            .count() as u32;
+        let mentioned_me = by_other_humans
+            .filter(|c| my_last_activity.is_none_or(|t| c.created_at > t))
+            .any(|c| c.mentions.iter().any(|m| same_login(m, me)));
+
         PrFacts {
             is_draft: pr.is_draft,
             is_mine,
@@ -189,6 +225,8 @@ impl PrFacts {
             updated_since_my_review,
             approved_by_other,
             changes_requested_by_other,
+            recent_comments,
+            mentioned_me,
         }
     }
 }
@@ -225,7 +263,17 @@ mod tests {
             requested_teams: vec![],
             reviews: vec![],
             commit_authors: vec!["alice".into()],
+            comments: vec![],
             found_by: BTreeSet::new(),
+        }
+    }
+
+    fn comment(author: &str, at: &str, mentions: &[&str]) -> Comment {
+        Comment {
+            author: author.into(),
+            author_is_bot: false,
+            created_at: ts(at),
+            mentions: mentions.iter().map(|m| m.to_string()).collect(),
         }
     }
 
@@ -271,6 +319,62 @@ mod tests {
         assert_eq!(f.my_last_review, Some(ReviewState::ChangesRequested));
         assert!(f.updated_since_my_review);
         assert!(!f.changes_requested_by_other);
+    }
+
+    #[test]
+    fn recent_comments_count_only_other_humans_inside_the_window() {
+        let now = ts("2026-10-09T00:00:00Z");
+        let mut p = pr();
+        p.comments = vec![
+            comment("bob", "2026-10-01T00:00:00Z", &[]), // too old
+            comment("bob", "2026-10-08T00:00:00Z", &[]),
+            comment("me", "2026-10-08T12:00:00Z", &[]), // mine
+            Comment {
+                author_is_bot: true,
+                ..comment("ci[bot]", "2026-10-08T13:00:00Z", &[])
+            },
+            comment("renovate[bot]", "2026-10-08T14:00:00Z", &[]), // listed bot
+        ];
+        let mut cfg = cfg();
+        cfg.team.bots = vec!["renovate[bot]".into()];
+        let f = PrFacts::compute(&p, &cfg, "me", now);
+        assert_eq!(f.recent_comments, 1);
+        assert!(!f.mentioned_me);
+    }
+
+    #[test]
+    fn mention_counts_until_i_respond() {
+        let now = ts("2026-10-09T00:00:00Z");
+        let mut p = pr();
+        p.comments = vec![comment("bob", "2026-10-02T00:00:00Z", &["carol", "ME"])];
+        let f = PrFacts::compute(&p, &cfg(), "me", now);
+        assert!(f.mentioned_me, "login match is case-insensitive");
+        assert_eq!(f.recent_comments, 0, "an old mention is still a mention");
+
+        p.comments.push(comment("me", "2026-10-03T00:00:00Z", &[]));
+        let f = PrFacts::compute(&p, &cfg(), "me", now);
+        assert!(!f.mentioned_me, "a later comment of mine answers it");
+
+        p.comments.pop();
+        p.reviews.push(Review {
+            author: "me".into(),
+            state: ReviewState::Commented,
+            submitted_at: ts("2026-10-03T00:00:00Z"),
+        });
+        let f = PrFacts::compute(&p, &cfg(), "me", now);
+        assert!(!f.mentioned_me, "a later review of mine answers it too");
+
+        p.comments
+            .push(comment("bob", "2026-10-04T00:00:00Z", &["me"]));
+        let f = PrFacts::compute(&p, &cfg(), "me", now);
+        assert!(
+            f.mentioned_me,
+            "a fresh mention after my reply counts again"
+        );
+
+        p.comments = vec![comment("me", "2026-10-05T00:00:00Z", &["me"])];
+        let f = PrFacts::compute(&p, &cfg(), "me", now);
+        assert!(!f.mentioned_me, "mentioning myself is not a mention");
     }
 
     #[test]

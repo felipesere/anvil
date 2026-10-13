@@ -1,6 +1,6 @@
 //! Configuration: who "me" is, who my team is, and the tunable knobs for scoring.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -56,6 +56,8 @@ pub struct Thresholds {
     pub recency_half_life_days: f64,
     /// Review/FYI entries scoring below this are not shown at all.
     pub min_review_score: f64,
+    /// A comment younger than this counts as recent discussion.
+    pub recent_comment_days: f64,
 }
 
 impl Default for Thresholds {
@@ -66,6 +68,7 @@ impl Default for Thresholds {
             bot_stale_days: 30.0,
             recency_half_life_days: 7.0,
             min_review_score: 0.0,
+            recent_comment_days: 3.0,
         }
     }
 }
@@ -98,7 +101,12 @@ pub struct Weights {
     pub state_approved_by_other: f64,
     pub state_changes_requested_by_other: f64,
 
+    /// Multiplier when nobody else has commented within
+    /// `thresholds.recent_comment_days`; 1.0 otherwise.
+    pub discussion_quiet: f64,
+
     pub bonus_requested_me: f64,
+    pub bonus_mentioned_me: f64,
     pub bonus_rereview: f64,
     pub bonus_requested_team: f64,
 
@@ -139,7 +147,9 @@ impl Default for Weights {
             state_conflicts: 0.6,
             state_approved_by_other: 0.8,
             state_changes_requested_by_other: 0.7,
+            discussion_quiet: 0.8,
             bonus_requested_me: 25.0,
+            bonus_mentioned_me: 20.0,
             bonus_rereview: 15.0,
             bonus_requested_team: 10.0,
             action_ci_failing: 90.0,
@@ -169,13 +179,12 @@ thresholds:
   close_stale_days: 21
   recency_half_life_days: 7
   min_review_score: 20      # hide review candidates scoring below this
+  recent_comment_days: 3    # comments younger than this count as discussion
 "#;
 
 impl Config {
-    pub fn default_path() -> Result<PathBuf> {
-        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-            return Ok(PathBuf::from(xdg).join("anvil").join("config.yaml"));
-        }
+    /// Always `~/.config/anvil/config.yaml`.
+    pub fn path() -> Result<PathBuf> {
         let base = directories::BaseDirs::new().context("could not determine home directory")?;
         Ok(base
             .home_dir()
@@ -184,11 +193,8 @@ impl Config {
             .join("config.yaml"))
     }
 
-    pub fn load(explicit: Option<&Path>) -> Result<Config> {
-        let path = match explicit {
-            Some(p) => p.to_path_buf(),
-            None => Self::default_path()?,
-        };
+    pub fn load() -> Result<Config> {
+        let path = Self::path()?;
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -263,7 +269,10 @@ mod tests {
         assert_eq!(cfg.review_requests.exclude_teams, vec!["acme/bot"]);
         assert_eq!(cfg.thresholds.bot_stale_days, 30.0);
         assert_eq!(cfg.thresholds.min_review_score, 20.0);
+        assert_eq!(cfg.thresholds.recent_comment_days, 3.0);
         assert_eq!(cfg.weights.author_bot, 0.25);
+        assert_eq!(cfg.weights.discussion_quiet, 0.8);
+        assert_eq!(cfg.weights.bonus_mentioned_me, 20.0);
     }
 
     #[test]

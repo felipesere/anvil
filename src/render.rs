@@ -278,6 +278,7 @@ fn review_row(e: &Entry) -> Vec<Cell> {
             .iter()
             .map(|r| match r {
                 ReviewReason::RequestedMe => "requested",
+                ReviewReason::Mentioned => "mentioned",
                 ReviewReason::RequestedTeam => "team-requested",
                 ReviewReason::ReReview => "re-review",
                 ReviewReason::TeamPr => "team",
