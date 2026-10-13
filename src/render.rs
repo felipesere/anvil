@@ -1,9 +1,10 @@
 //! Terminal and JSON output.
 
 use std::cmp::Ordering;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 use anyhow::Result;
+use comfy_table::{Attribute, Cell, CellAlignment, ColumnConstraint, ContentArrangement, Table};
 use owo_colors::{OwoColorize, Stream::Stdout};
 use serde::Serialize;
 
@@ -97,7 +98,8 @@ impl Report {
             &self.review,
             explain,
             top,
-            review_line,
+            REVIEW_HEADER,
+            review_row,
         )?;
         if self.hidden_below_threshold > 0 {
             let hidden = format!(
@@ -112,7 +114,8 @@ impl Report {
             &self.action,
             explain,
             top,
-            action_line,
+            ACTION_HEADER,
+            action_row,
         )?;
         section(
             out,
@@ -120,22 +123,43 @@ impl Report {
             &self.close,
             explain,
             top,
-            close_line,
+            CLOSE_HEADER,
+            close_row,
         )?;
         if show_fyi {
-            section(out, "FYI", &self.fyi, explain, top, review_line)?;
+            section(
+                out,
+                "FYI",
+                &self.fyi,
+                explain,
+                top,
+                REVIEW_HEADER,
+                review_row,
+            )?;
         }
         Ok(())
     }
 }
 
+/// Column of the PR reference (`owner/repo#number`), which is rendered as a
+/// hyperlink. Every section keeps it in the same position.
+const PR_REF_COLUMN: usize = 1;
+
+const REVIEW_HEADER: &[&str] = &[
+    "score", "pr", "diff", "stale", "ci", "author", "reason", "title",
+];
+const ACTION_HEADER: &[&str] = &["score", "pr", "reason", "title"];
+const CLOSE_HEADER: &[&str] = &["stale", "pr", "reason", "who", "title"];
+
+#[allow(clippy::too_many_arguments)]
 fn section(
     out: &mut impl Write,
     title: &str,
     entries: &[Entry],
     explain: bool,
     top: usize,
-    line: fn(&Entry) -> String,
+    header: &[&str],
+    row: fn(&Entry) -> Vec<Cell>,
 ) -> Result<()> {
     writeln!(out, "{}", title.if_supports_color(Stdout, |t| t.bold()))?;
     if entries.is_empty() {
@@ -144,27 +168,40 @@ fn section(
             "  {}",
             "nothing".if_supports_color(Stdout, |t| t.dimmed())
         )?;
+        writeln!(out)?;
+        return Ok(());
     }
     let shown = if top == 0 {
         entries.len()
     } else {
         top.min(entries.len())
     };
-    for e in &entries[..shown] {
-        writeln!(
-            out,
-            "  {}  {}",
-            line(e),
-            e.pr.url.if_supports_color(Stdout, |t| t.dimmed())
-        )?;
-        if explain {
-            writeln!(
-                out,
-                "      {}",
-                explanation(e).if_supports_color(Stdout, |t| t.dimmed())
-            )?;
-        }
+
+    let mut table = Table::new();
+    table
+        .load_style(comfy_table::presets::UTF8_FULL_CONDENSED)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    let mut header: Vec<Cell> = header
+        .iter()
+        .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
+        .collect();
+    if explain {
+        header.push(Cell::new("factors").add_attribute(Attribute::Bold));
     }
+    table.set_header(header);
+    for e in &entries[..shown] {
+        let mut cells = row(e);
+        if explain {
+            cells.push(Cell::new(explanation(e)).add_attribute(Attribute::Dim));
+        }
+        table.add_row(cells);
+    }
+    // Never wrap the link column: a split hyperlink is not clickable.
+    if let Some(col) = table.column_mut(PR_REF_COLUMN) {
+        col.set_constraint(ColumnConstraint::ContentWidth);
+    }
+    writeln!(out, "{table}")?;
+
     if shown < entries.len() {
         let more = format!(
             "… and {} more (raise --top to see them)",
@@ -208,11 +245,27 @@ fn ci_glyph(ci: CiState) -> String {
     }
 }
 
-fn pr_ref(pr: &Pr) -> String {
-    format!("{}#{}", pr.repo, pr.number)
+/// `text` wrapped in an OSC 8 terminal hyperlink to `url`.
+fn hyperlink(text: &str, url: &str) -> String {
+    format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
 }
 
-fn review_line(e: &Entry) -> String {
+/// `owner/repo#number`, clickable when stdout is a terminal. Piped output
+/// stays plain so it greps and diffs cleanly.
+fn pr_ref(pr: &Pr) -> Cell {
+    let text = truncate(&format!("{}#{}", pr.repo, pr.number), 34);
+    if std::io::stdout().is_terminal() {
+        Cell::new(hyperlink(&text, &pr.url))
+    } else {
+        Cell::new(text)
+    }
+}
+
+fn right(text: impl ToString) -> Cell {
+    Cell::new(text).set_alignment(CellAlignment::Right)
+}
+
+fn review_row(e: &Entry) -> Vec<Cell> {
     let reasons = match &e.scored.bucket {
         Bucket::Review(r) => r
             .iter()
@@ -226,26 +279,24 @@ fn review_line(e: &Entry) -> String {
             .join(","),
         _ => String::new(),
     };
-    let conflict = if e.facts.has_conflicts {
-        " ⚠conflicts"
+    let title = if e.facts.has_conflicts {
+        format!("{} ⚠conflicts", e.pr.title)
     } else {
-        ""
+        e.pr.title.clone()
     };
-    format!(
-        "{:>3}  {:<34} {:>12}  {:>3}d  {}  {:<14} {:<16} {}{}",
-        e.scored.score.round() as i64,
-        truncate(&pr_ref(&e.pr), 34),
-        format!("+{}/-{}", e.pr.additions, e.pr.deletions),
-        e.facts.stale_days.round() as i64,
-        ci_glyph(e.facts.ci),
-        truncate(&e.pr.author, 14),
-        reasons,
-        truncate(&e.pr.title, 60),
-        conflict,
-    )
+    vec![
+        right(e.scored.score.round() as i64),
+        pr_ref(&e.pr),
+        right(format!("+{}/-{}", e.pr.additions, e.pr.deletions)),
+        right(format!("{}d", e.facts.stale_days.round() as i64)),
+        Cell::new(ci_glyph(e.facts.ci)).set_alignment(CellAlignment::Center),
+        Cell::new(&e.pr.author),
+        Cell::new(reasons),
+        Cell::new(title),
+    ]
 }
 
-fn action_line(e: &Entry) -> String {
+fn action_row(e: &Entry) -> Vec<Cell> {
     let reasons = match &e.scored.bucket {
         Bucket::Action(r) => r
             .iter()
@@ -259,16 +310,15 @@ fn action_line(e: &Entry) -> String {
             .join(", "),
         _ => String::new(),
     };
-    format!(
-        "{:>3}  {:<34} {:<28} {}",
-        e.scored.score.round() as i64,
-        truncate(&pr_ref(&e.pr), 34),
-        reasons,
-        truncate(&e.pr.title, 60),
-    )
+    vec![
+        right(e.scored.score.round() as i64),
+        pr_ref(&e.pr),
+        Cell::new(reasons),
+        Cell::new(&e.pr.title),
+    ]
 }
 
-fn close_line(e: &Entry) -> String {
+fn close_row(e: &Entry) -> Vec<Cell> {
     let reason = match &e.scored.bucket {
         Bucket::Close(CloseReason::Stale) => "stale",
         Bucket::Close(CloseReason::OldConflicts) => "old+conflicts",
@@ -280,25 +330,33 @@ fn close_line(e: &Entry) -> String {
     } else {
         format!("nudge {}", e.pr.author)
     };
-    format!(
-        "{:>4}d stale  {:<34} {:<14} {:<22} {}",
-        e.facts.stale_days.round() as i64,
-        truncate(&pr_ref(&e.pr), 34),
-        reason,
-        format!("({})", truncate(&who, 20)),
-        truncate(&e.pr.title, 60),
-    )
+    vec![
+        right(format!("{}d", e.facts.stale_days.round() as i64)),
+        pr_ref(&e.pr),
+        Cell::new(reason),
+        Cell::new(who),
+        Cell::new(&e.pr.title),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::truncate;
+    use super::{hyperlink, truncate};
+
+    #[test]
+    fn hyperlink_wraps_text_in_osc8() {
+        let link = hyperlink("acme/widgets#1", "https://github.com/acme/widgets/pull/1");
+        assert_eq!(
+            link,
+            "\x1b]8;;https://github.com/acme/widgets/pull/1\x1b\\acme/widgets#1\x1b]8;;\x1b\\"
+        );
+    }
 
     #[test]
     fn truncate_never_exceeds_max_including_ellipsis() {
         assert_eq!(truncate("short", 10), "short");
         assert_eq!(truncate("exactly-ten", 11), "exactly-ten");
-        let cut = truncate("TrueLayer/homebrew-truelayer-internal#12", 34);
+        let cut = truncate("SomeOrg/homebrew-some-long-word-this-internal#12", 34);
         assert_eq!(cut.chars().count(), 34);
         assert!(cut.ends_with('…'));
         assert_eq!(truncate("ab", 1), "…");

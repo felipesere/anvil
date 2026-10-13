@@ -387,14 +387,36 @@ pub fn search_queries(cfg: &Config) -> Vec<(Query, String)> {
     }
     #[allow(non_snake_case)]
     let BASE = base.as_str();
-    let mut out = vec![
-        (
+    let mut out = Vec::new();
+
+    // Review requests. `review-requested:@me` covers me and every team I'm in;
+    // when specific teams are configured, ask for direct requests and each
+    // team separately instead (search has no OR across qualifiers).
+    let rr = &cfg.review_requests;
+    let mut exclude = String::new();
+    for team in &rr.exclude_teams {
+        exclude.push_str(&format!(" -team-review-requested:{team}"));
+    }
+    if rr.teams.is_empty() {
+        out.push((
             Query::ReviewRequested,
-            format!("{BASE} review-requested:@me"),
-        ),
-        (Query::Authored, format!("{BASE} author:@me")),
-        (Query::Involves, format!("{BASE} involves:@me -author:@me")),
-    ];
+            format!("{BASE} review-requested:@me{exclude}"),
+        ));
+    } else {
+        out.push((
+            Query::ReviewRequested,
+            format!("{BASE} user-review-requested:@me{exclude}"),
+        ));
+        for team in &rr.teams {
+            out.push((
+                Query::ReviewRequested,
+                format!("{BASE} team-review-requested:{team}{exclude}"),
+            ));
+        }
+    }
+
+    out.push((Query::Authored, format!("{BASE} author:@me")));
+    out.push((Query::Involves, format!("{BASE} involves:@me -author:@me")));
     for chunk in cfg.team.repos.chunks(REPOS_PER_QUERY) {
         let repos: Vec<String> = chunk.iter().map(|r| format!("repo:{r}")).collect();
         out.push((Query::TeamRepos, format!("{BASE} {}", repos.join(" "))));
@@ -737,6 +759,69 @@ mod tests {
         for (_, q) in search_queries(&cfg) {
             assert!(q.contains(" org:acme org:acme-labs "), "{q}");
         }
+    }
+
+    #[test]
+    fn default_review_query_is_plain_review_requested() {
+        let qs = search_queries(&Config::default());
+        let review: Vec<&str> = qs
+            .iter()
+            .filter(|(q, _)| *q == Query::ReviewRequested)
+            .map(|(_, s)| s.as_str())
+            .collect();
+        assert_eq!(
+            review,
+            vec!["is:open is:pr draft:false archived:false review-requested:@me"]
+        );
+    }
+
+    #[test]
+    fn excluded_teams_are_negated_on_review_queries() {
+        let mut cfg = Config::default();
+        cfg.review_requests.exclude_teams = vec!["acme/bot".into(), "acme/noise".into()];
+        let qs = search_queries(&cfg);
+        let review: Vec<&str> = qs
+            .iter()
+            .filter(|(q, _)| *q == Query::ReviewRequested)
+            .map(|(_, s)| s.as_str())
+            .collect();
+        assert_eq!(
+            review,
+            vec![
+                "is:open is:pr draft:false archived:false review-requested:@me \
+                 -team-review-requested:acme/bot -team-review-requested:acme/noise"
+            ]
+        );
+        for (query, q) in &qs {
+            if *query != Query::ReviewRequested {
+                assert!(!q.contains("team-review-requested"), "{q}");
+            }
+        }
+    }
+
+    #[test]
+    fn included_teams_split_into_direct_plus_one_query_per_team() {
+        let mut cfg = Config::default();
+        cfg.review_requests.teams = vec!["acme/payments".into(), "acme/platform".into()];
+        cfg.review_requests.exclude_teams = vec!["acme/bot".into()];
+        let qs = search_queries(&cfg);
+        let review: Vec<&str> = qs
+            .iter()
+            .filter(|(q, _)| *q == Query::ReviewRequested)
+            .map(|(_, s)| s.as_str())
+            .collect();
+        assert_eq!(
+            review,
+            vec![
+                "is:open is:pr draft:false archived:false user-review-requested:@me \
+                 -team-review-requested:acme/bot",
+                "is:open is:pr draft:false archived:false team-review-requested:acme/payments \
+                 -team-review-requested:acme/bot",
+                "is:open is:pr draft:false archived:false team-review-requested:acme/platform \
+                 -team-review-requested:acme/bot",
+            ]
+        );
+        assert!(!qs.iter().any(|(_, q)| q.contains(" review-requested:@me")));
     }
 
     #[test]

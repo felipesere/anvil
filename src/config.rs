@@ -13,6 +13,7 @@ pub struct Config {
     /// Restrict every search to these organisations (empty = everywhere).
     pub orgs: Vec<String>,
     pub team: Team,
+    pub review_requests: ReviewRequests,
     pub thresholds: Thresholds,
     pub weights: Weights,
 }
@@ -26,6 +27,20 @@ pub struct Team {
     pub repos: Vec<String>,
     /// Extra bot logins on top of accounts GitHub itself types as `Bot`.
     pub bots: Vec<String>,
+}
+
+/// Which review requests count as "requested from me".
+///
+/// GitHub's `review-requested:@me` matches requests to me directly and to any
+/// team I belong to. These knobs narrow that down.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ReviewRequests {
+    /// Besides direct requests to me, only requests to these teams (`org/slug`)
+    /// count. Empty = every team I belong to.
+    pub teams: Vec<String>,
+    /// Requests to these teams (`org/slug`) never count, even if I belong to them.
+    pub exclude_teams: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -145,6 +160,10 @@ team:
     - acme/gadgets
   bots: ["dependabot[bot]", "renovate[bot]"]
 
+review_requests:
+  teams: [acme/payments]       # only these teams' requests count (plus direct ones)
+  exclude_teams: [acme/bot]    # never count requests to these teams
+
 thresholds:
   close_after_days: 60
   close_stale_days: 21
@@ -193,6 +212,19 @@ impl Config {
         {
             bail!("weights.size_bands must be strictly ascending in max_lines");
         }
+        let rr = &cfg.review_requests;
+        for team in rr.teams.iter().chain(&rr.exclude_teams) {
+            if !team.contains('/') {
+                bail!("review_requests teams must be `org/slug`, got `{team}`");
+            }
+        }
+        if let Some(both) = rr
+            .teams
+            .iter()
+            .find(|t| rr.exclude_teams.iter().any(|e| e.eq_ignore_ascii_case(t)))
+        {
+            bail!("review_requests: `{both}` is both in teams and exclude_teams");
+        }
         Ok(cfg)
     }
 
@@ -227,6 +259,8 @@ mod tests {
         assert_eq!(cfg.team.members, vec!["alice", "bob"]);
         assert!(cfg.is_team_repo("ACME/widgets"));
         assert!(cfg.is_listed_bot("dependabot[bot]"));
+        assert_eq!(cfg.review_requests.teams, vec!["acme/payments"]);
+        assert_eq!(cfg.review_requests.exclude_teams, vec!["acme/bot"]);
         assert_eq!(cfg.thresholds.bot_stale_days, 30.0);
         assert_eq!(cfg.thresholds.min_review_score, 20.0);
         assert_eq!(cfg.weights.author_bot, 0.25);
@@ -242,5 +276,21 @@ mod tests {
     #[test]
     fn rejects_unknown_keys() {
         assert!(Config::parse("teem: {}").is_err());
+    }
+
+    #[test]
+    fn review_request_teams_must_be_org_slash_slug() {
+        assert!(Config::parse("review_requests: {teams: [payments]}").is_err());
+        assert!(Config::parse("review_requests: {exclude_teams: [bot]}").is_err());
+        assert!(Config::parse("review_requests: {teams: [acme/payments]}").is_ok());
+    }
+
+    #[test]
+    fn review_request_team_cannot_be_included_and_excluded() {
+        let err = Config::parse(
+            "review_requests: {teams: [acme/payments], exclude_teams: [ACME/payments]}",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("both"), "{err}");
     }
 }
