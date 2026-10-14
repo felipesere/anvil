@@ -54,7 +54,8 @@ pub struct Thresholds {
     pub bot_stale_days: f64,
     /// Half-life of the recency factor, in days since last update.
     pub recency_half_life_days: f64,
-    /// Review/FYI entries scoring below this are not shown at all.
+    /// Review/FYI entries scoring below this are not shown at all, except
+    /// that the top `--top` review entries are always shown.
     pub min_review_score: f64,
     /// A comment younger than this counts as recent discussion.
     pub recent_comment_days: f64,
@@ -178,7 +179,7 @@ thresholds:
   close_after_days: 60
   close_stale_days: 21
   recency_half_life_days: 7
-  min_review_score: 20      # hide review candidates scoring below this
+  min_review_score: 20      # hide review candidates scoring below this (top --top always shown)
   recent_comment_days: 3    # comments younger than this count as discussion
 "#;
 

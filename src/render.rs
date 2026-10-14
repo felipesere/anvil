@@ -25,6 +25,7 @@ pub struct Report {
     pub close: Vec<Entry>,
     pub fyi: Vec<Entry>,
     /// Review/FYI entries dropped for scoring below `min_review_score`.
+    /// The best `top` review entries are always kept, whatever their score.
     pub hidden_below_threshold: usize,
     pub min_review_score: f64,
 }
@@ -39,7 +40,9 @@ fn by_score_desc(a: &Entry, b: &Entry) -> Ordering {
 }
 
 impl Report {
-    pub fn build(entries: Vec<Entry>, min_review_score: f64) -> Report {
+    /// `top` is the number of review entries shown regardless of score
+    /// (`0` = unlimited, so the threshold never applies to reviews).
+    pub fn build(entries: Vec<Entry>, min_review_score: f64, top: usize) -> Report {
         let mut r = Report {
             min_review_score,
             ..Report::default()
@@ -49,10 +52,10 @@ impl Report {
                 Bucket::Skip => {}
                 Bucket::Close(_) => r.close.push(e),
                 Bucket::Action(_) => r.action.push(e),
-                Bucket::Review(_) | Bucket::Fyi if e.scored.score < min_review_score => {
+                Bucket::Review(_) => r.review.push(e),
+                Bucket::Fyi if e.scored.score < min_review_score => {
                     r.hidden_below_threshold += 1;
                 }
-                Bucket::Review(_) => r.review.push(e),
                 Bucket::Fyi => r.fyi.push(e),
             }
         }
@@ -60,6 +63,18 @@ impl Report {
         r.action.sort_by(by_score_desc);
         r.close.sort_by(by_score_desc);
         r.fyi.sort_by(by_score_desc);
+
+        // The top `n` always make the cut; the threshold only prunes the tail.
+        let above = r
+            .review
+            .partition_point(|e| e.scored.score >= min_review_score);
+        let keep = if top == 0 {
+            r.review.len()
+        } else {
+            above.max(top).min(r.review.len())
+        };
+        r.hidden_below_threshold += r.review.len() - keep;
+        r.review.truncate(keep);
         r
     }
 
@@ -349,7 +364,117 @@ fn close_row(e: &Entry) -> Vec<Cell> {
 
 #[cfg(test)]
 mod tests {
-    use super::{hyperlink, truncate};
+    use std::collections::BTreeSet;
+
+    use super::{Entry, Report, hyperlink, truncate};
+    use crate::model::{AuthorTier, CiState, Mergeable, Pr, PrFacts, RepoTier, ReviewDecision};
+    use crate::scoring::{Bucket, Explanation, ReviewReason, Scored};
+
+    fn entry(number: u64, bucket: Bucket, score: f64) -> Entry {
+        let ts = |s: &str| s.parse().unwrap();
+        Entry {
+            pr: Pr {
+                id: format!("PR_{number}"),
+                number,
+                repo: "acme/widgets".into(),
+                title: "t".into(),
+                url: "u".into(),
+                is_draft: false,
+                author: "alice".into(),
+                author_is_bot: false,
+                created_at: ts("2026-10-01T00:00:00Z"),
+                updated_at: ts("2026-10-08T00:00:00Z"),
+                additions: 1,
+                deletions: 1,
+                changed_files: 1,
+                mergeable: Mergeable::Clean,
+                review_decision: ReviewDecision::ReviewRequired,
+                ci: CiState::Success,
+                head_sha: "abc".into(),
+                last_commit_at: None,
+                requested_users: vec![],
+                requested_teams: vec![],
+                reviews: vec![],
+                commit_authors: vec![],
+                comments: vec![],
+                found_by: BTreeSet::new(),
+            },
+            facts: PrFacts {
+                is_draft: false,
+                is_mine: false,
+                i_contributed: false,
+                author_tier: AuthorTier::Team,
+                repo_tier: RepoTier::Team,
+                lines: 2,
+                age_days: 1.0,
+                stale_days: 1.0,
+                ci: CiState::Success,
+                has_conflicts: false,
+                review_decision: ReviewDecision::ReviewRequired,
+                requested_me: false,
+                requested_my_team: false,
+                my_last_review: None,
+                updated_since_my_review: false,
+                approved_by_other: false,
+                changes_requested_by_other: false,
+                recent_comments: 0,
+                mentioned_me: false,
+            },
+            scored: Scored {
+                bucket,
+                score,
+                explanation: Explanation {
+                    factors: vec![],
+                    bonuses: vec![],
+                },
+            },
+        }
+    }
+
+    fn review(number: u64, score: f64) -> Entry {
+        entry(number, Bucket::Review(vec![ReviewReason::TeamPr]), score)
+    }
+
+    fn review_numbers(r: &Report) -> Vec<u64> {
+        r.review.iter().map(|e| e.pr.number).collect()
+    }
+
+    #[test]
+    fn top_n_reviews_survive_the_threshold() {
+        let entries = vec![
+            review(1, 5.0),
+            review(2, 50.0),
+            review(3, 8.0),
+            review(4, 30.0),
+        ];
+        let r = Report::build(entries, 20.0, 3);
+        assert_eq!(review_numbers(&r), vec![2, 4, 3]);
+        assert_eq!(r.hidden_below_threshold, 1);
+    }
+
+    #[test]
+    fn threshold_does_not_cut_into_top_n_when_all_above() {
+        let entries = vec![review(1, 25.0), review(2, 50.0), review(3, 30.0)];
+        let r = Report::build(entries, 20.0, 2);
+        assert_eq!(review_numbers(&r), vec![2, 3, 1]);
+        assert_eq!(r.hidden_below_threshold, 0);
+    }
+
+    #[test]
+    fn unlimited_top_keeps_every_review() {
+        let entries = vec![review(1, 5.0), review(2, 50.0)];
+        let r = Report::build(entries, 20.0, 0);
+        assert_eq!(review_numbers(&r), vec![2, 1]);
+        assert_eq!(r.hidden_below_threshold, 0);
+    }
+
+    #[test]
+    fn fyi_still_hidden_below_threshold() {
+        let entries = vec![entry(1, Bucket::Fyi, 5.0), entry(2, Bucket::Fyi, 25.0)];
+        let r = Report::build(entries, 20.0, 10);
+        assert_eq!(r.fyi.len(), 1);
+        assert_eq!(r.hidden_below_threshold, 1);
+    }
 
     #[test]
     fn hyperlink_wraps_text_in_osc8() {

@@ -47,7 +47,7 @@ weights:    { ... }            # see below
 | `close_stale_days` | 21 | Days without update before an old PR is **Close: stale** |
 | `bot_stale_days` | 30 | Days without update before a bot PR is **Close: stale bot** |
 | `recency_half_life_days` | 7 | How fast a PR loses priority as it sits untouched (see below) |
-| `min_review_score` | 0 | Review/FYI entries scoring below this are hidden |
+| `min_review_score` | 0 | Review/FYI entries scoring below this are hidden; the top `--top` review entries are always shown |
 | `recent_comment_days` | 3 | A comment younger than this counts as recent discussion (see below) |
 
 ### Recency

@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
         })
         .collect();
 
-    let mut report = Report::build(entries, cfg.thresholds.min_review_score);
+    let mut report = Report::build(entries, cfg.thresholds.min_review_score, cli.top);
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     if cli.json {
