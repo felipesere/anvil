@@ -5,6 +5,7 @@ Sorts open PRs into **Close**, **Action**, **Review** and **FYI** buckets and ra
 
 ```
 anvil [--explain] [--json] [--all] [--top N]
+anvil calibrate [--kind review|action] [--rounds N] [--write]
 ```
 
 ## Configuration
@@ -142,3 +143,40 @@ and `repo` are the same multipliers as above.
 ### Close score
 
 Days since last update. Not configurable.
+
+## Calibration
+
+The weights above are abstract. `anvil calibrate` learns them from you instead:
+
+```
+anvil calibrate              # ask about 10 pairs from the Review section, then fit
+anvil calibrate --kind action --rounds 5
+anvil calibrate --rounds 0   # refit the stored judgments only
+```
+
+Each round shows two PRs from today's run side by side, with the facts the
+scorer sees (author, repo, size, age, CI, state, asks, discussion) plus the
+title, and asks which matters more: `a`, `b`, tie (`t`), skip (`s`) or
+quit (`q`). Pairs are chosen where the current weights are least sure, i.e.
+scores are close but at least one learnable factor differs.
+
+Every answer is appended to `~/.local/share/anvil/judgments.yaml` together
+with a snapshot of both PRs' facts as they were at that moment. The snapshot
+matters: staleness, CI and reviews drift, and the answer was given against
+the facts of that moment, not the PR as it is later.
+
+After the questions (or immediately with `--rounds 0`) all stored judgments
+are refit from scratch, starting at the shipped defaults and pulled toward
+them, so a handful of answers nudges the weights and many answers move them.
+The result is printed as a table of changed weights, together with how many
+of your non-tie answers the current and the fitted weights reproduce. Nothing
+is written unless you confirm or pass `--write`. Writing replaces only the
+`weights:` block of the config; everything else in the file is kept, but
+comments inside that block are lost.
+
+What is learned: every key under `weights` except the two anchors
+`author_team` and `repo_team`. Size band `max_lines` boundaries come from your
+config and are not learned. Thresholds and bucket rules are never changed by
+calibration. Expect to need a few dozen answers before the weights move much.
+
+To start over, delete the judgments file.

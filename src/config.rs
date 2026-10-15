@@ -74,7 +74,7 @@ impl Default for Thresholds {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SizeBand {
     /// Inclusive upper bound on additions + deletions.
@@ -82,7 +82,7 @@ pub struct SizeBand {
     pub weight: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Weights {
     pub author_team: f64,

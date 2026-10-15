@@ -1,3 +1,4 @@
+mod calibrate;
 mod config;
 mod enrich;
 mod github;
@@ -6,7 +7,7 @@ mod render;
 mod scoring;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use jiff::Timestamp;
 
 use crate::config::Config;
@@ -19,6 +20,15 @@ use crate::render::{Entry, Report};
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
+    #[command(flatten)]
+    triage: TriageArgs,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, clap::Args)]
+struct TriageArgs {
     /// Show the scoring factors under each PR.
     #[arg(long)]
     explain: bool,
@@ -36,11 +46,26 @@ struct Cli {
     top: usize,
 }
 
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Learn the scoring weights from your answers to "which PR matters more?".
+    Calibrate(calibrate::CalibrateArgs),
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load()?;
+    let entries = fetch_entries(&cfg).await?;
 
+    match cli.command {
+        Some(Command::Calibrate(args)) => calibrate::run(&cfg, &entries, &args),
+        None => triage(&cfg, entries, &cli.triage),
+    }
+}
+
+/// Search, fetch details and score every candidate PR.
+async fn fetch_entries(cfg: &Config) -> Result<Vec<Entry>> {
     let client = github::Client::new(&github::discover_token()?)?;
     let (me, searches) = tokio::try_join!(
         async {
@@ -49,7 +74,7 @@ async fn main() -> Result<()> {
                 None => client.viewer().await.context("resolving viewer login"),
             }
         },
-        github::search_all(&client, github::search_queries(&cfg)),
+        github::search_all(&client, github::search_queries(cfg)),
     )?;
     for (_, q, page) in &searches {
         let missed = page.truncated();
@@ -74,24 +99,26 @@ async fn main() -> Result<()> {
 
     let now = Timestamp::now();
     let enricher = NoopEnricher;
-    let entries: Vec<Entry> = github::assemble(github::candidates(searches), details)
+    Ok(github::assemble(github::candidates(searches), details)
         .into_iter()
         .map(|pr| {
-            let facts = PrFacts::compute(&pr, &cfg, &me, now);
+            let facts = PrFacts::compute(&pr, cfg, &me, now);
             let enrichment = enricher.enrich(&pr);
-            let scored = scoring::triage(&facts, enrichment.as_ref(), &cfg);
+            let scored = scoring::triage(&facts, enrichment.as_ref(), cfg);
             Entry { pr, facts, scored }
         })
-        .collect();
+        .collect())
+}
 
-    let mut report = Report::build(entries, cfg.thresholds.min_review_score, cli.top);
+fn triage(cfg: &Config, entries: Vec<Entry>, args: &TriageArgs) -> Result<()> {
+    let mut report = Report::build(entries, cfg.thresholds.min_review_score, args.top);
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
-    if cli.json {
-        report.truncate(cli.top);
+    if args.json {
+        report.truncate(args.top);
         report.print_json(&mut out)?;
     } else {
-        report.print_terminal(&mut out, cli.explain, cli.all, cli.top)?;
+        report.print_terminal(&mut out, args.explain, args.all, args.top)?;
     }
     Ok(())
 }
